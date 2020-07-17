@@ -1,0 +1,87 @@
+Zuul是Netflix开源的微服务网关，可以和ribbon，eureka等组件配合使用在eureka注册中心和用户之间，用户发送请求到Zuul网关，
+实现了系统安全性，Zuul还可以实现对请求的过滤，然后调用Eureka中注册好的服务
+各个服务就相当于工作在Eureka容器中。Zuul中必然需要负载均衡Ribbon，熔断Hystrix
+
+路由:分发给不同的微服务(服务名)
+负载均衡:同一个服务的不同实例(例如一个服务的多个线程池)
+
+不使用Zuul，用户直接发送请求调用服务的不足:
+       1.破坏了服务的无状态特点:为了保证对外服务的安全，需要实现对服务访问的权限控制，开放服务的权限控制机制会贯穿并污染整个业务逻辑
+                           破坏了服务集群中REST API无状态的特点
+             
+       2.无法直接复用既有接口:需要对一个既有的集群内访问接口，实现外部的服务访问时，不得不在原接口的基础上增加校验逻辑，或者增加一个代理
+                        调用实现权限控制，无法直接复用现有的接口
+                        
+Zuul中必然需要均衡Ribbon，熔断Hystrix，除此之外还有权限控制等功能，Zuul为微服务提供了保护，同时将权限控制这些较重的非业务逻辑内容迁移到
+了服务路由层面，使得服务集群主题具有更高的可复用性和可测试性
+
+Zuul的核心是一系列的过滤器，这些过滤器可以完成以下功能:
+     1.身份认证与安全:识别每个资源的验证要求，并拒绝那些与要求不符的请求
+     2.审查与监控:在边缘位置追踪有意义的数据和统计结果，带来精确的生产视图
+     3.动态路由:动态的将请求路由到不同的后端集群
+     4.压力测试:逐渐增加指向集群的流量，以了解性能
+     5.负载分配:为每一种负载类型分配对应容量，并拒绝使用超出限定值的请求
+     6.静态响应处理:在边缘位置直接建立部分响应，从而避免其转发到集群内部
+     7.多区域弹性:跨越AWS Region进行请求路由，旨在实现ELB使用的多样化，以及让系统的边缘更贴近系统的使用者
+     Zuul默认HTTP客户端使用的是Apache HTTP Client，也可以使用RestClient或者okhttp，要使用的话properties开启其服务即可
+     Zuul相当于一个服务消费者，从Eureka拉取服务列表，然后直接调用不同的后端服务
+     
+Zuul网关的创建:     
+     1.创建时直接选择Zuul的依赖
+     2.引入依赖(上一步已经选择了Zuul，所以此时不需要引入)
+     3.配置:
+             server.port=10000
+             spring.application.name=lijunZuul
+             
+             #routes.service-provided.路由名，随便起，是要对外暴露的服务的名  
+             zuul.routes.service-provided.path=/service-provided/**
+             zuul.routes.service-provided.url=http://localhost:8888
+             
+                                     访问时http://localhost:10000/service-provided/user/2
+                                     中的http://localhost:10000/service-provided就相当于http://localhost:8888
+                                                   原服务的访问地址   http://localhost:8888/user/2
+     4.main引导类加入注解，启用Zuul
+            @SpringBootApplication
+            @EnableZuulProxy//启用Zuul网关
+            public class SpringcloudzuulApplication {
+            
+            此时还未将Zuul加入到Eureka平台，添加依赖，添加注解，将Zuul加入到Eureka
+                      eureka.client.service-url.defaultZone:http://localhost:10086/eureka
+                      main加入注解@EnableDiscoveryClient//启用eureka服务
+                      properties中不再硬编码服务端口而改为了
+                      zuul.routes.service-provided.service-id=service-provided
+                      zuul.routes.service-provided.path=/service-provided/**
+          zuul.routes.<路由名称>=Eureka中的服务注册名称
+          最强的配置:不用配置zuul.routes.xxxx访问的时候直接使用服务在Eureka中的id，后面跟上响应路径就行
+             例如http://localhost:10000/service-provided/例如user/2            
+                      
+                      
+                      或者可以直接写为zuul.routes.service-provided=/service-provided/**不用配置ID了(最常用)
+                     这样的好处是1.zuul.routes.service-provided=/provided/**
+                 2.zuul.routes.service-customer=/customer/**
+                 一次可以配置多个的路由，访问路径为:
+                 1.http://localhost:10000/api/provided/user/2
+                 2.http://localhost:10000/api/customer/customer/?id=1       
+       zuul.prefix=/api  将经过网关调用的服务前缀都加上api，可以方便区分服务是否经过网关,访问时也就需要在端口后加上api否则访问不到
+       
+Zuul的过滤器实现鉴权功能:
+          只要实现IZuulfilter接口，就可以使用过滤器。ZuulFilter是过滤器的顶级父类，其中的四个最重要的方法:
+          1.shouldFilter:返回一个boolean值，判断该过滤器是否需要进行过滤(是否执行下面的run()方法)，true执行过滤，false不执行过滤
+          2.run() 过滤器的具体业务逻辑
+          3.filterType:返回字符串，代表过滤器的类型，包含以下四种:返回值就是String这四种类型
+                 a.pre:路由之前执行的过滤器
+                 b.route:在路由请求时执行的过滤器，  
+                 c.post:路由之后执行的过滤器
+                 d.error:出错时执行的过滤器
+                 一个请求，进入Zuul后首先进行前置过滤器(pre)，正常执行时，执行route过滤器，此时通过Eureka执行请求，收到执行后的结果后，执行post过滤器
+                 返回结果给请求。这三种过滤器都正常运行时会将得到的结果响应给请求。
+                 pre或route异常时执行error过滤器，再执行post，再响应请求
+                 error异常时执行post，在响应请求。
+                 post异常时执行error，error直接进行请求的响应，   
+          4.filterOrder:前置过滤器可能有多个，这个过滤器的返回值为int类型，这个int越小，优先级越高，返回值决定优先级
+          配置过滤器只需要继承这个 ZuulFilter就可以了           
+          
+          过滤器实例见示例
+ Zuul默认集成了Ribbon负载均衡和Hystrix熔断机制，但是都是默认值，例如熔断时间只有1s，可以自行进行修改
+       
+         

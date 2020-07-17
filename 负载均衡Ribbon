@@ -1,0 +1,47 @@
+什么是负载均衡?
+     负载均衡（Load balancing）是一种计算机网络技术，用来在多个计算机（计算机集群）、网络连接、CPU、磁盘驱动器或其他资源中分配负载，
+     以达到最佳化资源使用、最大化吞吐率、最小化响应时间、同时避免过载的目的。使用带有负载平衡的多个服务器组件，取代单一的组件，
+     可以通过冗余提高可靠性。负载平衡服务通常是由专用软件和硬件来完成。
+
+Ribbon?
+  Ribbon是Netflix发布的负载均衡器，有助于控制tcp和http的客户端行为，为Ribbon配置服务提供者地址列表后，Ribbon就可基于某种负载均衡算法，
+     自动帮助服务消费者去请求，Ribbon默认提供了很多负载均衡算法，例如轮询，随机等，也可以为Ribbon实现自定义的负载均衡算法
+     
+     
+      SpringCloud的开发步骤:
+               1.引入组件的启动器（依赖）eureka-client
+               2.覆盖默认的配置        properties中的配置
+               3.在引导类上添加注解，来开启相关的组件   
+               
+尝试在Eureka下加入Ribbon负载均衡，(Netflix中已经引入了Ribbon依赖)
+        1.需要两个provided
+                                       启动第一个，复制，修改端口信息，启动第二个
+        2.在消费者类的main引导类加入@LoadBalanced
+               @SpringBootApplication
+               @EnableDiscoveryClient
+               public class LijunServiceCostumerApplication {
+                   @Bean
+                   @LoadBalanced//开启负载均衡
+                   public RestTemplate restTemplate(){//RestTemplate Spring提供的工具
+                       return new RestTemplate();
+                   }
+                   public static void main(String[] args) {
+                       SpringApplication.run(LijunServiceCostumerApplication.class, args);
+                   }
+               }   
+         3.Controller层进行修改:
+    @GetMapping    (注释掉的为未使用负载均衡的return方法)
+    @ResponseBody
+    public User queryById(@RequestParam("id")Long id){
+//        List<ServiceInstance> instances = discoveryClient.getInstances("service-provided");
+//        //取得了eureka端service-provided提供的所有服务，这服务当然不止一条，所以为list
+//        ServiceInstance instance = instances.get(0);//取得的第一个服务端口
+//        return this.restTemplate.getForObject("http://"+instance.getHost()+":"+instance.getPort()+"/user/"+id,User.class);
+//        //return this.restTemplate.getForObject("http://localhost:8888/user/"+id,User.class);//远程访问服务，然后反序列化为User
+    return this.restTemplate.getForObject("http://service-provided/user/"+id,User.class);//使用Ribbon时只需要直接return，不需要别的bean
+    }             http://localhost/customer/?id=2测试，正确
+    
+    
+    properties中通过以下配置为不同的服务提供者采用不同的负载均衡策略
+    service-provided.ribbon.NFLoadBalancerRuleClassName=com.netflix.loadbalancer.RandomRule
+    #规定调用service-provided这个服务提供者时使用RandomRule（随机）负载均衡算法

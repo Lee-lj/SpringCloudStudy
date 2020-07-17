@@ -1,0 +1,80 @@
+Feign:服务调用，给予Ribbon和Hystrix的声明式服务调用组件(声明式服务调用,可以理解为内置了Ribbon和Hystrix)，
+是Netflix开发的声明式，模板化的Http客户端，支持SpringMvC注解
+
+Feign可以将Rest请求进行隐藏，伪装为类似SpringMvc的Controller一样，不用再拼接url，参数等信息，让Feign自动完成
+Feign对customer进行改造
+
+
+      1.引入依赖，由于属于SpringCloud，所以版本号依赖cloud
+      
+      <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+      </dependency>
+      
+      2.properties/yml配置(默认配置)
+        feign.hystrix.enabled=true
+              #开启熔断器，默认为false不开启		
+      3.main引导类进行注解 
+            //@SpringBootApplication
+            ////@EnableDiscoveryClient
+            ////@EnableCircuitBreaker//开启熔断器
+            @SpringCloudApplication//代替上面的三个注解
+            @EnableFeignClients//启用feign组件
+            public class LijunServiceCostumerApplication {
+                   启用feign后就不用再自己在main引导类，Controller注入使用restTemplate
+                   
+              controller中使用RestTemplate，Eureka，Ribbon的写的返回方法都失效，Feign只需要建立一个接口，将privided的
+                controller中的方法复制到Feign接口下创建接口，然后在customer-controller中自动装配创建的这个feign接口，
+                                          然后方法直接返回这个接口取到的值就实现了远程调用
+                                          
+                                          结果如下:
+          Controller中:
+@Controller
+@RequestMapping("customer")
+//@DefaultProperties(defaultFallback ="DefaultFallback" )//定义全局的默认熔断方法
+public class UserController {
+
+    @Autowired
+    private UserClient userClient;
+//    @Autowired//实现远端调用
+//    private RestTemplate restTemplate;
+
+//    @Autowired
+//    private DiscoveryClient discoveryClient;//这就相当于从eureka中拉取服务列表，包含了此时provided提供的所有信息
+
+    @GetMapping
+    @ResponseBody
+    @HystrixCommand //声明这个方法需要熔断
+    public String queryById(@RequestParam("id")Long id){
+//    return this.restTemplate.getForObject("http://service-provided/user/"+id,String.class);//使用Ribbon时只需要直接return，不需要别的bean
+       return this.userClient.queryUserById(id).toString();
+    }
+              Feign接口(UserClient)中:
+              @Component
+              @FeignClient(value = "service-provided",fallback = UserClientFallBack.class)
+              //启用feign，调用service-provided这个服务下的服务提供者,开启熔断后指定默认的熔断方法类
+              public interface UserClient {
+
+                  @GetMapping("user/{id}")//将原来的整个的controller的名拼接到各个服务上，不要在类前声明，不然报错
+                  public User queryUserById(@PathVariable("id")Long id);
+              }
+              
+              
+              
+      Feign虽然整合了Hystrix和Ribbon，但是默认是不开启熔断器Hystrix的，需要在properties中手动开启
+      feign.hystrix.enabled=true
+              #开启熔断器，默认为false不开启
+              开启了熔断就需要有一个默认的熔断方法，返回信息了，只需要建立一个Fallback类，实现Feign接口
+              @Component//注入容器
+              public class UserClientFallBack implements UserClient{
+
+                  @Override//这个方法就是熔断方法
+                  public User queryUserById(Long id) {
+                      User user = new User();
+                      user.setName("服务器正忙，请稍后再试");
+                      return user;
+                  }
+              }
+              
+              

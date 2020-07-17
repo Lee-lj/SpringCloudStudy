@@ -1,0 +1,6 @@
+在web-service-dao层的分层结构下，如果要实现大型的系统应用，可是使用分布式系统，将每一个服务垂直划分
+每个服务都有完整的web-service-dao，使用独有的数据库，这样虽然解了耦合，但是各个服务之间的调用开销大，复杂度高
+比如用户管理有一整套的web-service-dao，都有的datasource，商品管理有一整套的web-service-dao，还有自己的datasource
+
+在web-service-dao的基础上发展了微服务架构，如dubbo，Springcloud架构
+通过底层service-dao的公用，web层分为各个服务的子模块，实现平行划分，减少了复杂度，

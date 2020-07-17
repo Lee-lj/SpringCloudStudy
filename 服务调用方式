@@ -1,0 +1,14 @@
+无论是微服务还是SOA,都面临着服务器间的远程调用，服务器间的远程调用分为RPC和HTTP两种方式
+RPC:远程过程调用，类似的还有RMI，自定义数据格式，基于原生	TCP通信，速度快，效率高，早期的webService，dubbo都是	RPC的典型代表
+HTTP:http是基于tcp的网络传输协议，规定了数据传输的格式，现在客户端与服务端通信基本采用http，也可以用来进行远程服务调用，缺点是消息封装臃肿
+         优势是对服务的提供和调用方法没有任何技术限定，自由灵活，Rest风格可以使用http实现
+         (REST是一种软件架构风格，或者说是一种规范，其强调HTTP应当以资源为中心，并且规范了URI的风格；
+                          规范了HTTP请求动作（GET/PUT/POST/DELETE/HEAD/OPTIONS）的使用，具有对应的语义。)
+                          
+                          如果全部工程使用java，使用dubbo好，如果技术栈多样化，使用SpringCloud更好
+    Http客户端工具，实现对请求和响应的处理，开源的客户端工具有:
+    1.HttpClient Apache公司
+    2.OkHttp
+    3.URLConnection(默认用这个，JDK原生的)         这些不同的客户端API各不相同
+    RestTemplate Spring提供的工具，相当于以上三种工具
+    Spring提供了RestTemplate的模板工具类，对基于http的客户端进行了封装，并实现了对象与json字符串的序列化与反序列化，

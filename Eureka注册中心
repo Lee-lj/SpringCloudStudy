@@ -1,0 +1,111 @@
+
+
+相当于滴滴平台，在创建好调用方(乘客)和提供方(司机)后将两者都放入注册平台，然后自动的匹配
+乘客定期的拉取提供方产生的服务列表，然后直接调用提供方来服务，司机(提供方)向注册平台发送心跳(renew，也叫服务续约
+表示自己还活着，并向注册平台注册自己提供的服务，如果eureka接收不到提供方发送的renew，就会关闭这个服务
+
+顾客从eureka平台接收提供方(司机)的服务列表，挑选服务后，不再经过eureka，直接调用提供者(司机)进行服务
+
+创建Eureka注册平台时选择Eureka server依赖
+
+properties:
+           server.port:6666
+           spring.application.name=lijuneureka  #将来作为微服务的用户名注入到Eurake容器
+           eureka.client.service-url.defaultZone:http://localhost:10086/eureka
+            
+               注册的时候才能加/eureka，访问的时候不用加
+main引导类:
+           @SpringBootApplication
+           @EnableEurekaServer//启用eureka服务
+           
+eureka建立的时候加入了spring-cloud-starter-netflix-eureka-server这个依赖，所以eureka相当于服务端
+           在原来的provider的pom里面引入spring-cloud-starter-netflix-eureka-client相当于服务端:
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+    </dependencies>
+        <!--统一管理Springcloud的依赖的版本号-->
+        <dependencyManagement>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework.cloud</groupId>
+                    <artifactId>spring-cloud-dependencies</artifactId>
+                    <version>${spring-cloud.version}</version>
+                    <type>pom</type>
+                    <scope>import</scope>
+                </dependency>
+            </dependencies>
+        </dependencyManagement>
+        同样的在customer端也加入依赖，开启eureka服务，注册customer信息
+        然后在customer的controller中
+        
+    @Autowired
+    private DiscoveryClient discoveryClient;//这就相当于从eureka中拉取服务列表，包含了此时provided提供的所有信息
+
+    @GetMapping
+    @ResponseBody
+    public User queryById(@RequestParam("id")Long id){
+        List<ServiceInstance> instances = discoveryClient.getInstances("service-provided");
+        //取得了eureka端service-provided提供的所有服务，这服务当然不止一条，所以为list
+        ServiceInstance instance = instances.get(0);//取得的第一个服务端口
+        return this.restTemplate.getForObject("http://"+instance.getHost()+":"+instance.getPort()+"/user/"+id,User.class);
+        //return this.restTemplate.getForObject("http://localhost:8888/user/"+id,User.class);//远程访问服务，然后反序列化为User
+    }
+    
+    getInstances("service-provided");中的service-provided就是服务提供者的名字
+    return this.restTemplate.getForObject("http://"+instance.getHost()+":"+instance.getPort()+"/user/"+id,User.class);
+    就解决了硬编码的问题
+    
+    
+    Eureka的基础架构:
+        1.服务注册中心。例如eureka，提供了服务的注册和提供服务列表
+        2.服务提供者:相当于滴滴司机，提供服务，可以使用springboot，也可以是其他的提供rest风格的接口的技术
+        3.服务消费者；消费应用从注册中心获取服务列表，从而知晓要调用的服务，然后调用提供者
+    Eureka的高可用性:
+                为了避免一个Eureka平台挂掉导致整个系统失效，可以使用一个Eureka的工程，在IDEA的Services中复制Eureka，这样复制不会创建一个新的工程
+                只相当于复制了一个tomcat，将两个Eureka平台相互注册。比如10086，10087，先启动10086的tomcat，然后更改端口信息，然后启动10087就实现了
+                平台的相互注册，两个平台的数据是同步的。
+                server.port:10086
+                spring.application.name=lijuneureka  #将自己也作为微服务加入到eureka容器,名字就叫lijuneureka
+                eureka.client.service-url.defaultZone:http://localhost:10087/eureka
+                
+               两个平台的名字可以相同
+                server.port:10087
+                spring.application.name=lijuneureka  #将自己也作为微服务加入到eureka容器,名字就叫lijuneureka
+                eureka.client.service-url.defaultZone:http://localhost:10086/eureka
+        
+      Eureka服务提供者:
+                                    提供者在启动时，会检测配置中的eureka.client.register-with-eureka=true是否正确(默认为true)，如果值为true
+                                    就会向EurekaServer发送一个Rest请求，携带自己的元数据，EurekaServer将这个信息保存在一个双层的Map结构中
+                          1.第一层Map的key就是服务ID，一般为spring.application.name的属性值
+                          2.第二层Map的key就是服务的实例id，host+serviceId+port 如localhost，user，8888
+                                    注册完成后，提供者会维持一个心跳(定时向Eureka发送Rest请求)，告诉Eureka我还活着，这就叫做续约renew
+                                    有两个参数可以更改服务续约的行为:
+                     #eureka.instance.lease-expiration-duration-in-seconds=90  
+                                                             服务失效的时间，默认为90秒(EurekaServer连续90s没有接收到续约，就认为该服务宕机，从服务列表删除)
+           
+                     #eureka.instance.lease-renewal-interval-in-seconds=30  服务续约的间隔，默认为30秒向Eureka发送一次续约请求
+                                                                但是这两个值有点大，可能服务已经关闭了但是Eureka任然认为这个服务还活着，可以适当调小这两个值
+       Eureka服务消费者:
+                                    服务消费者启动时，会检测eureka.client.fetch-registry=true，为true时拉取EurekaServer的列表只读备份，然后缓存在本地，
+                                    每隔30秒重新拉取并更新数据，可以通过eureka.client.registry-fetch-interval-seconds=来更改拉取更新时间，比如5，每隔5s拉取更新服务列表
+       
+       Eureka失效剔除和自我保护
+               1.服务下线:服务提供者正常关闭操作时，会触发一个服务下线的Rest请求给EurekaServer，使其知晓服务要下线了，服务中心收到后将其设置为下线状态
+               2.失效剔除:服务方有时候会因为内存溢出，网络故障等原因导致服务无法正常工作，EuerkaServer需要将这种失效的服务剔除出服务列表
+                                                    会开启一个定时服务，每隔60s对失效的服务(超过90s未续约响应)进行剔除，通过ureka.server.eviction-interval-timer-in-ms=
+                                                    对其进行修改，生产环境不要修改，单位为毫秒
+               3.自我保护:关停一个服务，会在Eureka收到警告，当一个服务未按时进行心跳续约，Eurake会统计最近15分钟的心跳失效的服务实例的比例是否
+                                                    超过了85%，在生产环境下，由于网络延迟等因素，心跳失效比例可能超标，但是此时剔除服务不合适，因为服务未宕机，Eureka会将当前实例
+                                                    的注册信息保护起来，不予剔除，，生产环境下保证了大多数服务依然可用
+                                                    但是开发环境下会不能及时剔除失效服务，通过eureka.server.enable-self-preservation=false来关闭自我保护(true为开启自我保护)
+                  
+                                                                                 
+    
+    
+    
+    
+    
+    
+    

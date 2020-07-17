@@ -1,0 +1,50 @@
+SpringCloud实现了配置管理，服务发现，智能路由，负载均衡，熔断器，控制总线，集群状态等功能，主要组件包括:
+     1.Eureka:服务治理组件，包含服务注册中心，服务注册与发现机制的实现(服务治理，服务注册/发现)  改造customer和privided
+     2.Zuul:网关组件，提供智能路由，访问过滤功能
+     3.Ribbon:客户端负载均衡的服务调用组件(客户端负载)  改造customer
+     4.Feign:服务调用，给予Ribbon和Hystrix的声明式服务调用组件(声明式服务调用)  改造customer
+     5.Hystrix:容错管理组件，帮助服务依赖中出现的延迟和为故障提供强大的容错能力(熔断，断路器，容错)  改造customer
+     SpringCloud是拥有很多子项目的大项目，版本为版本名(伦敦地铁站名)+版本号(SR为稳定版，后面会有递增的数字)
+     SpringCloud基于Soringboot2.x开发
+     
+     
+     SpringCloud的初体验:搭建一个服务的提供方，一个服务的调用方，调用方调用提供方完成操作
+     提供方：跟原来boot，ssm的一样
+     Spring提供了RestTemplate的模板工具类，对基于http的客户端进行了封装，并实现了对象与json字符串的序列化与反序列化，RestTemplate相当于其他三种
+     在调用远程服务时就必须使用HTTP客户端。我们可以使用JDK原生的URLConnection、Apache的Http Client、Netty的异步HTTP Client, Spring的RestTemplate。
+     调用方:在boot的主类中加入
+     @Bean
+    public RestTemplate restTemplate(){
+        return new RestTemplate();
+    }
+    Controller:
+     @Autowired//实现远端调用
+    private RestTemplate restTemplate;
+
+    @GetMapping
+    public User queryById(@RequestParam("id")Long id){
+        return this.restTemplate.getForObject("http://localhost:8888/user/"+id,User.class);//远程访问服务，然后反序列化为User类，
+                                如果User.class改为String.class，就序列化为了String类进行返回
+    }使用调用方测试接口:localhost8888:/user/provided?id=id 就好了
+    
+          但是直接把url地址硬编码到了代码中，不方便后期维护http://localhost:8888/user/，提供者的地址变更，宕机，都不容易更改
+          即使提供者实现集群，调用者自己还要实现负载均衡
+          
+        这也是分布式面临的问题:
+             1.服务管理:
+                   a.如何实现自动注册和发现
+                   b.如何实现状态监管
+                   c.如何实现动态路由
+             2.服务如何实现负载均衡
+             3.服务如何解决容灾问题
+             4.服务如何实现统一配置
+         都可以使用SpringCloud一一解决
+         
+         
+         SpringCloud的开发步骤:
+               1.引入组件的启动器（依赖）eureka-client
+               2.覆盖默认的配置        properties中的配置
+               3.在引导类上添加注解，来开启相关的组件   
+                                main引导类:
+                                     @SpringBootApplication
+                                     @EnableEurekaServer//启用eureka服务

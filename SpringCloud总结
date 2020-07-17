@@ -1,0 +1,126 @@
+SpringCloud是在springboot基础上发展的微服务框架
+SPringCloud加入组件，实现功能的一般步骤:
+   1.pom中引入依赖
+   2.properties中修改默认配置
+   3.main引导类加入注解
+   
+   Springcloud我已经使用过的组件:
+      eureka:注册中心，服务的注册和服务列表的推送，服务的续约
+                      服务端使用步骤:1.引入eureka-server的服务端启动器
+                2.properties中设置spring.application.name=xxx作为显示在注册平台上的服务名
+                                eureka.client.service-url.defaultZone:http://localhost:10086/eureka  eureka服务地址
+                                
+                                ureka.server.eviction-interval-timer-in-ms=60 剔除无效服务的间隔时间，默认60s
+                                
+                                eureka.server.enable-self-preservation=false来关闭自我保护(true为开启自我保护)开启的话开发环境下会不能及时剔除失效服务
+                3.@EnableEurekaServer开启Eureka服务端的功能
+                    
+                     客户端使用步骤:1.引入eureka-client的服务端启动器
+                   2.properties中设置spring.application.name=xxx作为显示在注册平台上的服务名  
+                                eureka.client.service-url.defaultZone:http://localhost:10086/eureka  eureka服务地址
+                               
+                                eureka.instance.lease-expiration-duration-in-seconds=90  
+                                                                                    服务失效的时间，默认为90秒(EurekaServer连续90s没有接收到续约，就认为该服务宕机，从服务列表删除)
+                                                                                    
+                                eureka.instance.lease-renewal-interval-in-seconds=30  服务续约的间隔，默认为30秒向Eureka发送一次续约请求
+                                                                                   但是这两个值有点大，可能服务已经关闭了但是Eureka任然认为这个服务还活着，可以适当调小这两个值
+                                                                                   
+                                eureka.client.register-with-eureka=true(默认为true)，如果值为true，微服务启动时将这个服务注册到Eureka，false时不再注册
+                                
+                                eureka.client.fetch-registry=true作为消费方时是否拉取服务列表，默认为true，拉取
+                                eureka.client.registry-fetch-interval-seconds=30s 设置拉取服务的间隔时间
+                 3.注解: @EnableDiscoveryClient 启用Eureka客户端
+
+
+     Ribbon负载均衡组件 ，eureka，Zuul，feign都集成了此组件
+                     1.配置负载均衡策略:<服务名>.ribbon.NFLoadBalancerRuleClassName=负载均衡策略的全路径
+                                                                          例如service-provided.ribbon.NFLoadBalancerRuleClassName=com.netflix.loadbalancer.RandomRule
+                     
+                     2.@LoadBalanced注解，在RestTemplate的@Bean上加入   
+     
+     Hystrix容错组件:  @SpringBootApplication
+                     @EnableDiscoveryClient
+                     @EnableCircuitBreaker//开启熔断器       
+                                                            这三个注解可以用另一个组合注解@SpringCloudApplication注解来代替     
+                    1.服务降级:
+                         a.引入Hystrix依赖
+                         b.添加配置，例如超时时间的配置:Hystrix默认的超时时长为1s(请求超过1s时会返回错误信息)，通过配置修改这个超时时长
+                              hystrix.command.fault.execution.isolation.thread.timeoutInMilliseconds=6000
+                              #开发环境可以不更改，生产环境要设置hystrix的超时时长为6000ms(不一定要6000，设置一个合适的不受延迟影响的值)
+                         c.@EnableCircuitBreaker启用熔断组件
+                         d.熔断后的返回信息:1.局部:controller中定义熔断的方法。熔断方法和被熔断的方法返回值，参数列表要一致
+                                             @HystrixCommand(fallbackMethod = "queryByIdFallback(熔断方法名)")//自定义熔断后调用的方法，在Controller中写
+                                        2.全局:熔断方法和被熔断的方法返回值一致，不能有参数列表
+                                             @DefaultProperties(defaultFallback ="DefaultFallback(熔断方法名)" )//定义全局的默认熔断方法，在Controller中写
+                                                                                                                                        给要添加熔断的服务方法添加的@HystrixCommand，不使用全局的，加上1中局部的就好
+                    2.服务熔断
+                         1.Closed:关闭状态，线路联通，所有请求正常访问
+                         2.Open:打开状态，所有请求都会被降级，Hystrix会对请求情况计数，一定时间内失败请求百分比达到阈值(失败占比50%或不小于20次)就会触发熔断，打开熔断器
+                                                                                          默认的失败请求百分比为50%或者失败请求次数最少为20次
+                         3.HalfOpen:半开状态，open状态不是永久的，打开后会进入休眠状态(默认为5s)，然后断路器会进入半开状态，释放部分请求通过
+                                                                                  如果这些通过的请求都是健康的，就会完全关闭断路器，否则继续打开熔断器(Open状态)，然后再次进行休眠计时，5后再通过一部分请求，再判断，如此往复
+                                                                                  
+      Feign远程调用组件:内部集成了ribbon和hystrix，使代码更上流，方法上都使用的是SpringMvc注解
+                 1.引入启动器的依赖
+                 2.Feign虽然整合了Hystrix和Ribbon，但是默认是不开启熔断器Hystrix的，需要在properties中手动开启
+                             feign.hystrix.enabled=true 开启熔断
+                 3.main引导类@EnableFeignClients//启用feign组件
+                 4.代码的优化:
+                         1.定义一个接口，将privided的controller中的方法复制到Feign接口下创建接口，然后在customer-controller中自动装配创建的这个feign接口，
+                                                                                          然后方法直接返回这个接口取到的值就实现了远程调用        
+                                   @Component
+                                   @FeignClient(value = "service-provided(服务名)",fallback = UserClientFallBack(实现类).class)
+                                   //启用feign，调用service-provided这个服务下的服务提供者,开启熔断后指定默认的熔断方法类
+                                   public interface UserClient {  
+                                      @GetMapping("user/{id}")//将原来的整个的controller的名拼接到各个服务上，不要在类前声明，不然报错
+                                      public User queryUserById(@PathVariable("id")Long id);
+                                    } 
+                          2.这个接口的实现类:
+                                     @Component//注入容器
+                                     public class UserClientFallBack implements UserClient{
+                                         @Override//这个方法就是熔断方法
+                                         public User queryUserById(Long id) {
+                                             User user = new User();
+                                             user.setName("服务器正忙，请稍后再试");
+                                             return user;
+                                         }
+                                     }
+       
+       Zuul网关组件，默认集成了Ribbon负载均衡和Hystrix熔断机制，但是都是默认值，例如熔断时间只有1s，可以自行进行修改
+                            提供的服务:路由(将请求根据Eureka服务列表传至对应的服务)，过偏器(实现请求的过滤，鉴权等等)，负载均衡:同一个服务的不同实例(例如一个服务的多个线程池)                                                                        
+                  1.引入启动器(创建时直接选择Zuul的依赖)
+                  2.添加配置:
+                      a.路由的配置:
+                                zuul.routes.service-provided.service-id=service-provided
+                                zuul.routes.service-provided.path=/service-provided/**   
+                                                                       
+                                                                        或者不用配置zuul.routes.xxxx访问的时候直接使用服务在Eureka中的id，后面跟上响应路径就行
+                                                                                      例如http://localhost:10000/service-provided/例如user/2   
+                                                                                      
+                                                                        最常用:可以直接写为zuul.routes.service-provided=/service-provided/**不用配置ID了(最常用)
+                                                                                       这样的好处是1.zuul.routes.service-provided=/provided/**
+                                          2.zuul.routes.service-customer=/customer/**
+                                                                                                            一次可以配置多个的路由，对应访问方法为:
+                                              1.http://localhost:10000/api/provided/user/2
+                                              2.http://localhost:10000/api/customer/customer/?id=1  
+                      b.路由前缀的配置zuul.prefix=/api  将经过网关调用的服务前缀都加上api，
+                                                               可以方便区分服务是否经过网关,访问时也就需要在端口后加上api否则访问不到                                                                                                                                                                                                                                 
+                      
+                      c.@EnableZuulProxy//启用Zuul网关组件  main引导类加入注解，启用Zuul
+                      
+                      d.自定义过滤器:IZuulfilter接口,但是一般不使用这个接口，使用ZuulFilter这个默认抽象类,四种方法:
+                             1.shouldFilter:返回一个boolean值，判断该过滤器是否需要进行过滤(是否执行下面的run()方法)，true执行过滤，false不执行过滤
+                             2.run() 过滤器的具体业务逻辑
+                             3.filterType:返回字符串，代表过滤器的类型，包含以下四种:返回值就是String这四种类型
+                                    a.pre:路由之前执行的过滤器
+                                    b.route:在路由请求时执行的过滤器，  
+                                    c.post:路由之后执行的过滤器
+                                    d.error:出错时执行的过滤器
+                                                                                                                一个请求，进入Zuul后首先进行前置过滤器(pre)，正常执行时，执行route过滤器，此时通过Eureka执行请求，收到执行后的结果后，执行post过滤器
+                                                                                                                返回结果给请求。这三种过滤器都正常运行时会将得到的结果响应给请求。
+                                    pre或route异常时执行error过滤器，再执行post，再响应请求
+                                    error异常时执行post，在响应请求。
+                                    post异常时执行error，error直接进行请求的响应，   
+                             4.filterOrder:前置过滤器可能有多个，这个过滤器的返回值为int类型，这个int越小，优先级越高，返回值决定优先级
+                                                                   配置过滤器只需要继承这个 ZuulFilter就可以了，
+                      
